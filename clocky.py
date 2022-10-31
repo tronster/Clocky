@@ -1,6 +1,6 @@
 # ============================================================================
 # Clocky the Mr. Clock program
-# by Tronster, July 2020 ( tronster.com )
+# by Tronster, October 2022 ( tronster.com )
 #
 # Expects a RainbowHAT to be attached to a RaspberryPi's GPIO
 # See: https://shop.pimoroni.com/products/rainbow-hat-for-android-things
@@ -14,7 +14,7 @@
 # MISC:
 # Sunset: https://michelanders.blogspot.com/2010/12/calulating-sunrise-and-sunset-in-python.html
 # Misc: /usr/lib/python3/dist-packages/rainbowhat/alphanum4.py
-# todo: look into threading (audio at lea) https://github.com/hweiguang/rpi-rainbowhat
+# todo: look into threading (audio at least) https://github.com/hweiguang/rpi-rainbowhat
 #
 # Bit #s (from right left) used in set_digit_raw(0-3,0b00000000000000):
 #       ________________                     bit # ->      ...7654321
@@ -35,6 +35,7 @@
 #
 # ============================================================================
 import colorsys
+import os
 import math
 import rainbowhat as rh			# pylint: disable=import-error
 import random
@@ -227,6 +228,7 @@ def set_rainbow_based_on_time( time, sunrise=6, sunset=19):
 	pix 			:PixelBuffer = PixelBuffer(size, [0,1,0,0.05])
 	night_pix 		:PixelBuffer = PixelBuffer(size, [1,0,2,0.05])	# buffer for night stars
 	sunsetrise_pix	:PixelBuffer = PixelBuffer(size, [0,0,0,0.05])
+	wakeup_display   :bool = False
 
 	for i in range(size):
 		sunsetrise_pix[i] = [5*(1+(minute%5)),0,0,0.05]
@@ -248,6 +250,8 @@ def set_rainbow_based_on_time( time, sunrise=6, sunset=19):
 	if hour == sunrise:
 		sunsetrise_amount = get_0to0_from_percent((minute / 59))
 		blend_amount = ((59-minute) / 59)
+	elif hour == (sunrise+1):
+		wakeup_display = True
 	elif hour == sunset:
 		sunsetrise_amount = get_0to0_from_percent((minute / 59))
 		blend_amount = (minute / 59)
@@ -256,14 +260,20 @@ def set_rainbow_based_on_time( time, sunrise=6, sunset=19):
 	else:
 		blend_amount = 0.0
 	
-	pix = pix_array_weighted_blend(pix, night_pix, blend_amount)	
-	pix = pix_array_weighted_blend(pix, sunsetrise_pix, sunsetrise_amount)		
-	#print("h: ",localtime.tm_hour, "  m: ", localtime.tm_min, "  blend: ",blend_amount,"   sunset: ", sunsetrise_amount)
-
-	# "render" out to LED buffer
-	for i in range(size):
-		if i < max_led:
-			rh.rainbow.set_pixel(i, pix[i][0], clamp(pix[i][1],0,255), clamp(pix[i][2],0,255) , clamp(pix[i][3],0,255))
+	#wakeup_display = True #debug force true
+	if wakeup_display:
+		# "render" out to LED buffer
+		for i in range(max_led):
+			brightness = clamp(minute+5,1,30)/60	# 0.08 to 0.5 brightness
+			rh.rainbow.set_pixel(i, random.randint(0,32), random.randint(0,32), random.randint(0,32), brightness)	# index,r,g,b,a
+	else:
+		pix = pix_array_weighted_blend(pix, night_pix, blend_amount)	
+		pix = pix_array_weighted_blend(pix, sunsetrise_pix, sunsetrise_amount)		
+		#print("h: ",localtime.tm_hour, "  m: ", localtime.tm_min, "  blend: ",blend_amount,"   sunset: ", sunsetrise_amount)
+		# "render" out to LED buffer
+		for i in range(size):
+			if i < max_led:
+				rh.rainbow.set_pixel(i, pix[i][0], clamp(pix[i][1],0,255), clamp(pix[i][2],0,255), clamp(pix[i][3],0,255))
 
 # ----------------------------------------------------------------------------
 # For a a given seconds (120 to 0) and a pixel index, return an RGB value for that pixel
@@ -523,12 +533,31 @@ class TimeoutMode(Mode):
 			rh.rainbow.set_pixel(6-i, rgb[0], rgb[1], rgb[2], 0.3)
 
 # ----------------------------------------------------------------------------
+class StrobeMode(Mode):
+	def __init__(self):
+		Mode.__init__(self,"Strb","Strobe")
+		self.skip_preview = False
+		self.is_tune_played :bool = False		
+		self.set_abc_modes( MenuMode, MenuMode, MenuMode )
+
+	def run(self):
+		durration:int = 400
+		cycle:int = int(self.get_durration_ms() % durration)
+		color:int = 255
+		brightness:float = 1.0
+		if cycle > 100:
+			color = 0
+			brightness = 0 # fade: 1-(cycle/durration)
+		for i in range( MAX_LEDS ):
+			rh.rainbow.set_pixel(i, color, color, color, brightness)
+
+# ----------------------------------------------------------------------------
 class CreditsMode(Mode):
 	def __init__(self):
 		Mode.__init__(self,"CRDT","Credits")
 		self.scroll_delay = 0
 		self.scroll_delay_max = 0.25
-		self.range_words = range_sub_string("    Made by tronster.com - Drink water, brush your teeth, love each other... not all at once.    ") 
+		self.range_words = range_sub_string( "    Made for Edward by his dad, Tronster     " ) 
 		self.set_abc_modes( MenuMode, MenuMode, MenuMode )
 
 	def enter(self, old_mode):
@@ -644,7 +673,13 @@ class TempatureMode(Mode):
 		self.set_abc_modes(None, MenuMode, None )
 
 	def run(self):
+		# Obtain CPU temperature to adjust what the RainbotHAT is reading
+		res = os.popen('vcgencmd measure_temp').readline()
+		cpu_temp = int(float((res.replace("temp=","").replace("'C\n",""))))
+		
+		# Get RainbowHat's temp and adjust it by the CPU
 		temp = rh.weather.temperature()
+		temp = temp - (cpu_temp - temp) / 2
 		if self.is_fahrenheit:
 			temp = (temp * (9/5)) + 32
 		rh.display.print_float( temp )
@@ -654,7 +689,7 @@ class TempatureMode(Mode):
 
 # ----------------------------------------------------------------------------
 class MenuMode(Mode):
-	modes		:list = [TempatureMode,CountDecimalMode,CountHexMode,ClockMode,NapMode,TimeoutMode,CreditsMode]
+	modes		:list = [TempatureMode,CountDecimalMode,CountHexMode,ClockMode,NapMode,StrobeMode,CreditsMode]	# Note used: TimeoutMode
 	mode_index	:int = 0
 	last_index	:int = 0
 

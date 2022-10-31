@@ -1,6 +1,6 @@
 # Clocky
 
-A Python 3 clock for the Pimoroni RainbowHAT with additional timing based.
+A Python 3 clock for the Pimoroni RainbowHAT with additional timing based functionality by [Tronster](https://tronster.com).
 
 ## Features
 
@@ -69,6 +69,13 @@ In decimal ("1234") or hexidecimal ("ABCD") modes the LEDs will show the binary 
 **A** (Un)pause
 **B** Exit mode, go back to menu
 **C** (Un)pause
+
+### Strobe Mode
+
+A (slow) strobe light; great for Halloween or other spooky effects.
+**A** Goes back to the main menu
+**B** Goes back to the main menu
+**C** Goes back to the main menu
 
 ### Timeout Mode
 
